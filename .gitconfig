@@ -1,0 +1,86 @@
+[user]
+    email = menglish@celtx.com
+    name = Matthew English
+[core]
+    editor = nano -w
+    excludesfile = /Users/matthewenglish/.gitignore_global
+[merge]
+    tool = diffuse
+[alias]
+    set-upstream = !git branch --set-upstream-to=origin/$(git symbolic-ref --short HEAD)
+    undo-commit = reset --soft HEAD~1
+    current-branch = symbolic-ref --short HEAD
+    #Reverts the most recent commit and unstages all changes if the last commit was a "tmp" commit
+    tmp-revert = "!f() { \
+                    if [[ $(git log --pretty=format:%s -1) == \"tmp\" ]] ; then \
+                      git reset --soft HEAD~1 && git restore --staged . ; \
+                    fi; \
+                  }; \
+                  f"
+    #Creates a new commit on the branch with the message "tmp", as "tmp" commits are allowed on any branch per the celtx
+    #git hooks. This allows temporary changes to be kept on a branch when switching
+    tmp-commit = "!f() { \
+                     git tmp-revert; \
+                     git add -A; \
+                     git commit --no-verify -m "tmp"; \
+                   }; \
+                   f"
+    #Runs a git pull command using the current branch as the upstream.
+    pull-this = "!f() { \
+                    git pull origin $(git current-branch); \
+                  }; \
+                  f"
+
+    #Runs a git push command using the current branch as the upstream.
+    push-this = "!f() { \
+                    git push origin $(git current-branch); \
+                  }; \
+                  f"
+
+    #Checks out the last branch you were working on before the current branch
+    checkout-previous = "!f() { \
+                            git checkout $(git previous-branch); \
+                          }; \
+                          f"
+
+    #Pulls the last branch you were working on before the current branch
+    pull-previous = "!f() { \
+                        git pull origin $(git previous-branch); \
+                      }; \
+                      f"
+
+    #Searches (via grep) for a local or remote branch who's name matches the search string
+    grep-branch = "!f() { \
+                      git branch -a | sed -e 's/[ \\*]*//' | grep -e $1; \
+                    }; \
+                    f "
+
+    #Searches (via grep) for a remote branch who's name matches the search string
+    grep-branch-remote = "!f() { \
+                             git branch -a | sed -e 's/[ \\*]*//' | grep -e '^remotes' | grep -e $1; \
+                           }; \
+                           f"
+
+    #Searches (via grep) for a local branch who's name matches the search string
+    grep-branch-local  = "!f() { \
+                             git branch -a | sed -e 's/[ \\*]*//' | grep -v -e '^remotes' | grep -e $1; \
+                           }; \
+                           f"
+
+    #Prints out the n last branches you were working on, the current branch is included.
+    last-branches = "!f() { \
+                        git reflog show --pretty=format:'%gs ~ %gd' --date=relative | grep 'checkout:' | grep -oE '[^ ]+ ~ .*' | awk -F \"~\" '!seen[$1]++' | awk 'BEGIN { FS=\"~\" } { print $1 }' | head -n $1; \
+                      }; \
+                      f"
+
+    #Prints out the name of the last branch you were working on before the current branch
+    previous-branch = "!f () { \
+                          git last-branches 2 | sed -n '2 p'; \
+                        }; \
+                        f"
+
+    #Checks out the nth last branch you were working on. The 1st branch is your current branch.
+    checkout-last-branch = "!f() { \
+                               git checkout $(git last-branches ${1} | sed -n \"${1} p\"); \
+                             }; \
+                             f"
