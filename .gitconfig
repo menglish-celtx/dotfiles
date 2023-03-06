@@ -4,12 +4,25 @@
 [core]
     editor = nano -w
     excludesfile = /Users/matthewenglish/.gitignore_global
+[diff]
+  tool = meld
+[difftool]
+  prompt = false
+[difftool "meld"]
+  trustExitCode = true
+  cmd = open -W -a Meld --args \"$LOCAL\" \"$REMOTE\"
 [merge]
-    tool = diffuse
+  tool = meld
+[mergetool]
+  prompt = false
+[mergetool "meld"]
+  trustExitCode = true
+  cmd = open -W -a Meld --args --auto-merge \"$LOCAL\" \"$BASE\" \"$REMOTE\" --output=\"$MERGED\"
 [alias]
     set-upstream = !git branch --set-upstream-to=origin/$(git symbolic-ref --short HEAD)
     undo-commit = reset --soft HEAD~1
     current-branch = symbolic-ref --short HEAD
+    parse-jira-code = !bash -c 'parse_jira_code $0'
     #Reverts the most recent commit and unstages all changes if the last commit was a "tmp" commit
     tmp-revert = "!f() { \
                     if [[ $(git log --pretty=format:%s -1) == \"tmp\" ]] ; then \
@@ -37,6 +50,12 @@
                   }; \
                   f"
 
+    #Runs a git force push command using the current branch as the upstream.
+    push-force = "!f() { \
+                    git push -f origin $(git current-branch); \
+                  }; \
+                  f"
+
     #Checks out the last branch you were working on before the current branch
     checkout-previous = "!f() { \
                             git checkout $(git previous-branch); \
@@ -57,7 +76,7 @@
 
     #Searches (via grep) for a remote branch who's name matches the search string
     grep-branch-remote = "!f() { \
-                             git branch -a | sed -e 's/[ \\*]*//' | grep -e '^remotes' | grep -e $1; \
+                            git branch -a | sed -e 's/[ \\*]*//' | grep -e '^remotes' | grep -e $1; \
                            }; \
                            f"
 
@@ -69,13 +88,18 @@
 
     #Prints out the n last branches you were working on, the current branch is included.
     last-branches = "!f() { \
-                        git reflog show --pretty=format:'%gs ~ %gd' --date=relative | grep 'checkout:' | grep -oE '[^ ]+ ~ .*' | awk -F \"~\" '!seen[$1]++' | awk 'BEGIN { FS=\"~\" } { print $1 }' | head -n $1; \
+                        git reflog show --pretty=format:'%gs ~ %gd' --date=relative \
+                        | grep 'checkout:' \
+                        | grep -oE '[^ ]+ ~ .*' \
+                        | awk -F \"~\" '!seen[$1]++' \
+                        | awk 'BEGIN { FS=\"~\" } { print $1 }' \
+                        | head -n $1; \
                       }; \
                       f"
 
     #Prints out the name of the last branch you were working on before the current branch
     previous-branch = "!f () { \
-                          git last-branches 2 | sed -n '2 p'; \
+                           git last-branches 2 | sed -n '2 p'; \
                         }; \
                         f"
 
@@ -84,3 +108,31 @@
                                git checkout $(git last-branches ${1} | sed -n \"${1} p\"); \
                              }; \
                              f"
+
+    #Prints, to the console, the body and subject of all commits on only this branch. Strips out the JIRA codes from the commit subjects and 
+    #formats the commits to some light markdown so it can be copied right into a PR
+    print-pr-details = "!f() { \
+                           git log $(git current-branch) --no-merges --reverse \
+                            --not $(git for-each-ref --format='%(refname)' refs/heads/ | grep -v "refs/heads/$(git current-branch)") \
+                            --format='+ %s%n%b' \
+                            | perl -ne 'print unless m/^\\s*$/' \
+                            | perl -pe 's/^(\\s*)-(\\s*)/$1  - /g' \
+                            | perl -pe \"s/\\+ $(git parse-jira-code $(git current-branch)):/-/g\"; \
+                        }; \
+                        f"
+
+    #Updates the commit and author date on the most recent commit to be right now
+    last-commit-now = "!f() { \
+                          LC_ALL=C GIT_COMMITTER_DATE=\"$(date)\" git commit --amend --no-edit --date \"$(date)\" --no-verify; \
+                        }; \
+                        f"
+
+    # Alias to amend to the last commit with (or without) editing the message. Use the -m arg to supply a message
+    oops = "!f(){ \
+               if [ \"$1\" == '' ]; then \
+                 git commit --amend --no-edit; \
+               else \
+                 git commit --amend \"$@\"; \
+               fi;\
+             }; \
+             f"
