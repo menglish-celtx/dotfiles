@@ -18,11 +18,12 @@
 [mergetool "meld"]
   trustExitCode = true
   cmd = open -W -a Meld --args --auto-merge \"$LOCAL\" \"$BASE\" \"$REMOTE\" --output=\"$MERGED\"
+[rerere]
+  enabled = true
 [alias]
     set-upstream = !git branch --set-upstream-to=origin/$(git symbolic-ref --short HEAD)
     undo-commit = reset --soft HEAD~1
     current-branch = symbolic-ref --short HEAD
-    parse-jira-code = !bash -c 'parse_jira_code $0'
     #Reverts the most recent commit and unstages all changes if the last commit was a "tmp" commit
     tmp-revert = "!f() { \
                     if [[ $(git log --pretty=format:%s -1) == \"tmp\" ]] ; then \
@@ -44,6 +45,12 @@
                   }; \
                   f"
 
+    #Runs a git pull command to pull in the ftv trunk
+    ftv-pull = "!f() { \
+                   git pull origin trunk_ftv; \
+                 }; \
+                 f"
+
     #Runs a git push command using the current branch as the upstream.
     push-this = "!f() { \
                     git push origin $(git current-branch); \
@@ -52,7 +59,7 @@
 
     #Runs a git force push command using the current branch as the upstream.
     push-force = "!f() { \
-                    git push -f origin $(git current-branch); \
+                    git push --force-with-lease origin $(git current-branch); \
                   }; \
                   f"
 
@@ -97,33 +104,32 @@
                       }; \
                       f"
 
+    #Prints out the name of the nth last branch you were working on before the current branch
+    nth-last-branch = "!f () { \
+                           git last-branches $((${1} + 1)) | sed -n \"$((${1} + 1)) p\"; \
+                        }; \
+                        f"
+
     #Prints out the name of the last branch you were working on before the current branch
     previous-branch = "!f () { \
-                           git last-branches 2 | sed -n '2 p'; \
+                          git nth-last-branch 1; \
                         }; \
                         f"
 
     #Checks out the nth last branch you were working on. The 1st branch is your current branch.
     checkout-last-branch = "!f() { \
-                               git checkout $(git last-branches ${1} | sed -n \"${1} p\"); \
+                               git checkout $(git nth-last-branch ${1}); \
                              }; \
                              f"
-
-    #Prints, to the console, the body and subject of all commits on only this branch. Strips out the JIRA codes from the commit subjects and 
-    #formats the commits to some light markdown so it can be copied right into a PR
-    print-pr-details = "!f() { \
-                           git log $(git current-branch) --no-merges --reverse \
-                            --not $(git for-each-ref --format='%(refname)' refs/heads/ | grep -v "refs/heads/$(git current-branch)") \
-                            --format='+ %s%n%b' \
-                            | perl -ne 'print unless m/^\\s*$/' \
-                            | perl -pe 's/^(\\s*)-(\\s*)/$1  - /g' \
-                            | perl -pe \"s/\\+ $(git parse-jira-code $(git current-branch)):/-/g\"; \
-                        }; \
-                        f"
 
     #Updates the commit and author date on the most recent commit to be right now
     last-commit-now = "!f() { \
                           LC_ALL=C GIT_COMMITTER_DATE=\"$(date)\" git commit --amend --no-edit --date \"$(date)\" --no-verify; \
+                        }; \
+                        f"
+
+    ammend-same-date = "!f() { \
+                          LC_ALL=C GIT_COMMITTER_DATE=\"$(git log -n 1 --format=%aD)\"  git commit --amend --no-edit --date=\"$(git log -n 1 --format=%aD)\" ; \
                         }; \
                         f"
 
@@ -136,3 +142,34 @@
                fi;\
              }; \
              f"
+
+    #Prints, to the console, the body and subject of all commits on only this branch. Strips out the JIRA codes from the commit subjects and 
+    #formats the commits to some light markdown so it can be copied right into a PR
+    print-pr-details = "!f() { \
+              if [ -z \"$1\" ] || ! git show-ref --verify --quiet refs/heads/$1; then \
+                  echo 'Error: Please provide a valid branch name as the first argument.' >&2; \
+                  return 1; \
+              fi; \
+              if ! git fetch origin $1 > /dev/null 2>&1; then \
+                  echo 'Error: Fetch failed.' >&2; \
+                  git fetch origin $1; \
+                  return 1; \
+              fi; \
+              local log_content=\"$(git log $(git current-branch)...$1 --no-merges --reverse --format='+ %s%n%b' | sed '/^\\s*$/d')\"; \
+              local jira_tags=$(echo \"${log_content}\" | grep -oE '\\+\\s[A-z]+\\-\\d+'); \
+              local jira_tag_count=$(echo \"${jira_tags}\" | sort | uniq | wc -l); \
+              if [ \"${jira_tag_count}\" -gt 1 ]; then \
+                  echo \"${log_content}\" | sed -E 's/(^ *-)/  \\1/g' | sed 's/+/-/g' ; \
+              else \
+                  local jira_tag=$(echo \"${jira_tags}\" | head -n 1); \
+                  echo \"${log_content}\" | sed \"/^$jira_tag/d\"; \
+              fi; \
+            }; \
+            f"
+
+    #Copies the details to be used in a PR for this branch. See \`print-pr-details\` for information about what's included
+    copy-pr-details = "!f() { \
+                          git print-pr-details $@ | pbcopy; \
+                        }; \
+                        f"
+
